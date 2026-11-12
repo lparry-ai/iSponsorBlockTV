@@ -20,6 +20,9 @@ fn yes() -> bool {
 fn one() -> f64 {
     1.0
 }
+fn ten() -> f64 {
+    10.0
+}
 fn join_name() -> String {
     "iSponsorBlockTV".into()
 }
@@ -66,6 +69,9 @@ pub struct Config {
     pub mute_ads: bool,
     #[serde(default)]
     pub skip_ads: bool,
+    /// Only skip native YouTube ads at least this many seconds long (0 = skip any length).
+    #[serde(default = "ten")]
+    pub minimum_ad_skip_length: f64,
     #[serde(default = "one")]
     pub minimum_skip_length: f64,
     #[serde(default = "yes")]
@@ -285,6 +291,7 @@ mod tests {
         assert_eq!(cfg.apikey, "");
         assert!(cfg.skip_count_tracking && cfg.auto_play);
         assert_eq!(cfg.minimum_skip_length, 2.0);
+        assert_eq!(cfg.minimum_ad_skip_length, 10.0);
         let out = serde_json::to_value(&cfg).unwrap();
         assert_eq!(out["future_option"], "keep me");
         assert_eq!(out["devices"][0]["custom"], 1);

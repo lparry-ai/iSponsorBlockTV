@@ -58,6 +58,10 @@ for that many seconds before skipping (so you can tell it was a sponsor), and
 start of the video coming back). For example `"skip_delay": 3, "skip_end_margin": 1`.
 Segments too short to leave anything to skip after both are applied are left to play.
 
+With `skip_ads` on, native YouTube ads are only skipped if they're at least
+`minimum_ad_skip_length` seconds long (default 10, `0` skips any length). Shorter ads play
+out, muted if `mute_ads` is on.
+
 With `skip_count_tracking` on (the default), each skip tells SponsorBlock the segment was
 used, which reveals the video you watched along with your IP address. Set it to `false` if
 you'd rather not.

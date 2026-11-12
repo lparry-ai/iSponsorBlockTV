@@ -66,6 +66,8 @@ struct DeviceState {
     /// MQTT: last published playback_state.
     last_playback_state: &'static str,
     metadata_task: Option<JoinHandle<()>>,
+    /// Length of the ad currently playing, from `adPlaying` (`onAdStateChange` omits it).
+    ad_duration: Option<f64>,
 }
 
 pub struct DeviceListener {
@@ -80,6 +82,8 @@ pub struct DeviceListener {
     skip_end_margin: f64,
     mute_ads: bool,
     skip_ads: bool,
+    /// Skippable ads shorter than this (seconds) are left to play.
+    minimum_ad_skip_length: f64,
     auto_play: bool,
     state: Mutex<DeviceState>,
     notifier: Option<Notifier>,
@@ -118,6 +122,7 @@ impl DeviceListener {
             skip_end_margin: config.skip_end_margin.max(0.0),
             mute_ads: config.mute_ads,
             skip_ads: config.skip_ads,
+            minimum_ad_skip_length: config.minimum_ad_skip_length.max(0.0),
             auto_play: config.auto_play,
             state: Mutex::new(DeviceState {
                 playback_speed: 1.0,
@@ -315,7 +320,23 @@ impl DeviceListener {
 
     /// Ad handling shared by `onAdStateChange` and `adPlaying`.
     fn handle_ad(&self, data: &Value) {
-        if self.skip_ads && str_field(data, "isSkipEnabled") == "true" {
+        let duration = {
+            let mut st = self.st();
+            if let Some(d) = num_field(data, "duration").filter(|d| *d > 0.0) {
+                st.ad_duration = Some(d);
+            }
+            st.ad_duration
+        };
+        let mut skip = self.skip_ads && str_field(data, "isSkipEnabled") == "true";
+        if skip && !ad_long_enough(duration, self.minimum_ad_skip_length) {
+            tracing::info!(
+                "Ad is shorter than {}s ({:.1}s), not skipping",
+                self.minimum_ad_skip_length,
+                duration.unwrap_or_default()
+            );
+            skip = false;
+        }
+        if skip {
             tracing::info!("Ad can be skipped, skipping");
             self.skip_ad();
             if self.mute_ads {
@@ -344,6 +365,9 @@ impl DeviceListener {
                 self.on_playback_change();
             }
             "nowPlaying" => {
+                if str_field(&data, "state") == "1" {
+                    self.st().ad_duration = None;
+                }
                 if self.mute_ads && str_field(&data, "state") == "1" {
                     tracing::info!("Ad has ended, unmuting");
                     self.mute(false);
@@ -361,6 +385,7 @@ impl DeviceListener {
             }
             "onAdStateChange" => {
                 if str_field(&data, "adState") == "0" && str_field(&data, "currentTime") != "0" {
+                    self.st().ad_duration = None;
                     if self.mute_ads {
                         tracing::info!("Ad has ended, unmuting");
                         self.mute(false);
@@ -544,6 +569,11 @@ struct SkipTiming {
     end_margin: f64,
 }
 
+/// Whether an ad is long enough to skip. An unknown length is skipped (the old behaviour).
+fn ad_long_enough(duration: Option<f64>, minimum: f64) -> bool {
+    duration.is_none_or(|d| d >= minimum)
+}
+
 /// Pure version of the skip timing logic (port of `time_to_segment`, extended with
 /// `skip_delay` / `skip_end_margin`). With both at 0 it behaves like the Python version.
 fn next_skip(
@@ -628,6 +658,15 @@ mod tests {
         );
         assert_eq!(video_label(meta(Some("T"), None)), r#" "T""#);
         assert_eq!(video_label(None), "");
+    }
+
+    #[test]
+    fn short_ads_are_not_skipped() {
+        assert!(!ad_long_enough(Some(6.0), 10.0));
+        assert!(ad_long_enough(Some(10.0), 10.0));
+        assert!(ad_long_enough(Some(30.0), 10.0));
+        assert!(ad_long_enough(None, 10.0));
+        assert!(ad_long_enough(Some(6.0), 0.0));
     }
 
     #[test]

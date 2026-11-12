@@ -200,6 +200,12 @@ pub async fn run(data_dir: &Path) -> Result<()> {
         yes_no("Do you want to mute native YouTube ads automatically? (y/N) ") == Some(true);
     config.skip_ads =
         yes_no("Do you want to skip native YouTube ads automatically? (y/N) ") == Some(true);
+    if config.skip_ads {
+        config.minimum_ad_skip_length = seconds(&format!(
+            "Only skip ads at least this many seconds long (currently {}, 0 = any length): ",
+            config.minimum_ad_skip_length
+        ));
+    }
     config.auto_play = yes_no("Do you want to enable autoplay? (Y/n) ") != Some(false);
 
     let url = input(&format!(
